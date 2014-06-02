@@ -249,7 +249,7 @@ action buildFirstCampus(Game g) {
     return a;
 }
 
-action buildSecondCampus(Game g) {
+/*action buildSecondCampus(Game g) {
     action a;
     int player = getWhoseTurn(g);
     path locations[3] = {"RR", "RRLRLLR", "LRLR"};
@@ -278,26 +278,27 @@ action buildSecondCampus(Game g) {
         a.actionCode = PASS;
     }
     return a;
+}*/
+
+action buildGO8(Game g) {
+    action a;
+    return a;
 }
  
-action decideAction (Game g) {
+action decideAction(Game g) {
     action nextAction;
     nextAction.actionCode = PASS;
     int player = getWhoseTurn(g);
 
-    if (getCampuses(g, player) < 3) {
+    if (getCampuses(g, player) < 3 && getGO8s(g, player) == 0) {
         nextAction = buildFirstCampus(g);
     }
-    else {
-        /* if (getCampuses(g, player) < 4) {
-            nextAction = buildSecondCampus(g);
-        } else {
-
-        } */
+    else if (getGO8s(g, player) < 1) {
+        nextAction = buildGO8(g);
+    } else {
         if (nextAction.actionCode == PASS) {
-
             nextAction = startSpinoff(g);
         }
     }
-    return nextAction;
+    return nextAction
 }
