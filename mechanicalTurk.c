@@ -12,6 +12,53 @@
 
 #define NO_RETRAIN 0
 
+#define MAP_OPTION1 1
+#define MAP_OPTION2 2
+#define OPTION1_ARC1 {"R", "LRLRLRRLRL", "LRLRL"}
+#define OPTION1_ARC2 {"RL", "LRLRLRRLRR", "LRLRR"}
+#define OPTION1_CAMPUS {"RL", "LRLRLRRLRR", "LRLRR"}
+#define OPTION1_2ND_CAMPUS_ARC {"RR", "LRL", "LRLRLRRL"}
+#define OPTION1_2ND_CAMPUS {"RR", "LRLRLRRLR", "LRLR"}
+#define OPTION2_ARC1 {"RLRLRLRLRLLL", "RRLRLL", "RRLRLLRLRLL"}
+#define OPTION2_ARC2 {"RLRLRLRLRLLLL", "RRLRLLL", "RRLRLLRLRLLL"}
+#define OPTION2_CAMPUS {"RLRLRLRLRLLLL", "RRLRLLL", "RRLRLLRLRLLL"}
+
+static action startSpinoff(Game g);
+static int spinoffRetrains(Game g, int disciplTo);
+static int distFrom7(Game g, int regionID);
+static int decideOption(Game g);
+static action buildCampus(Game g, path dest);
+static action buildFirstCampus(Game g);
+static action buildSecondCampus(Game g);
+static action buildGO8(Game g);
+ 
+action decideAction(Game g) {
+    action nextAction;
+    nextAction.actionCode = PASS;
+    int player = getWhoseTurn(g);
+
+    // Build first campus on first turn
+    if (getCampuses(g, player) < 3 && getGO8s(g, player) == 0) {
+        nextAction = buildFirstCampus(g);
+    }
+    // Upgrade the campus we made above into a GO8
+    // Stop trying if it hasn't been made in 85 turns
+    else if (getGO8s(g, player) < 1 && getTurnNumber(g) < 85) {
+        nextAction = buildGO8(g);
+    } else {
+        if (decideOption(g) == MAP_OPTION1) {
+            nextAction = buildSecondCampus(g);
+        }
+        // If cant build second campus
+        // default to starting spinoffs
+        if (nextAction.actionCode == PASS) {
+            nextAction = startSpinoff(g);
+        }
+    }
+    return nextAction;
+}
+
+// Retrain students to start a spinoff
 static int spinoffRetrains(Game g, int disciplTo) {
     int exchangeRate;
     int player = getWhoseTurn(g);
@@ -31,12 +78,14 @@ static int spinoffRetrains(Game g, int disciplTo) {
                 exchangeRate++;
             }
             if (getStudents(g, player, current) >= exchangeRate) {
+                // If both MTV and M$ are depleted, only retrain MTV if
+                // there is enough left to also retrain M$
                 if (disciplTo == STUDENT_MTV &&
                     getStudents(g, player, STUDENT_MMONEY) == 0) {
                     if (retrainFrom == NO_RETRAIN) {
                         retrainFrom = current;
                         if ((getStudents(g, player, current)
-                            - exchangeRate) / 3) {
+                            - exchangeRate) / 3 >= 1) {
                             retrainIsOkay = TRUE;
                         }
                     } else {
@@ -66,18 +115,14 @@ static action startSpinoff(Game g) {
     if (getStudents(g, player, STUDENT_MJ) >= 1 &&
         getStudents(g, player, STUDENT_MTV) >= 1 &&
         getStudents(g, player, STUDENT_MMONEY) >= 1) {
-        //printf("Creating spinoff\n");
         spinoffAction.actionCode = START_SPINOFF;
     } else {
         if (getStudents(g, player, STUDENT_MJ) == 0) {
             depletedDiscipl = STUDENT_MJ;
-            //printf("MJ depleted\n");
         } else if (getStudents(g, player, STUDENT_MTV) == 0) {
             depletedDiscipl = STUDENT_MTV;
-            //printf("MTV depleted\n");
         } else {
             depletedDiscipl = STUDENT_MMONEY;
-            //printf("M$ depleted\n");
         }
 
         retrainFrom = spinoffRetrains(g, depletedDiscipl);
@@ -91,48 +136,9 @@ static action startSpinoff(Game g) {
     }
     return spinoffAction;
 }
-/*
-action firstTurn(Game g) {
-    action nextAction;
-    int player = getWhoseTurn(g);
-    if (player == UNI_A) {
-        if (getARC(g, "R") != UNI_A) {
-            nextAction.actionCode = OBTAIN_ARC;
-            strcpy(nextAction.destination, "R");
-        } else if (getARC(g, "RL") != UNI_A) {
-            nextAction.actionCode = OBTAIN_ARC;
-            strcpy(nextAction.destination, "RL");
-        } else {
-            nextAction.actionCode = BUILD_CAMPUS;
-            strcpy(nextAction.destination, "RL");
-        }
-    } else if (player == UNI_B) {
-        if (getARC(g, "RRLRLL") != UNI_B) {
-            nextAction.actionCode = OBTAIN_ARC;
-            strcpy(nextAction.destination, "RRLRLL");
-        } else if (getARC(g, "RRLRLLL") != UNI_B) {
-            nextAction.actionCode = OBTAIN_ARC;
-            strcpy(nextAction.destination, "RRLRLLL");
-        } else {
-            nextAction.actionCode = BUILD_CAMPUS;
-            strcpy(nextAction.destination, "RRLRLLL");
-        }
-    } else {
-        if (getARC(g, "LRLRL") != UNI_C) {
-            nextAction.actionCode = OBTAIN_ARC;
-            strcpy(nextAction.destination, "LRLRL");
-        } else if (getARC(g, "LRLRR") != UNI_C) {
-            nextAction.actionCode = OBTAIN_ARC;
-            strcpy(nextAction.destination, "LRLRR");
-        } else {
-            nextAction.actionCode = BUILD_CAMPUS;
-            strcpy(nextAction.destination, "LRLRR");
-        }
-    }
-    return nextAction;
-}
-*/
-int distFrom7(Game g, int regionID) {
+
+// how close a number is to 7 (and higher probability)
+static int distFrom7(Game g, int regionID) {
     int diceValue = 7 - getDiceValue(g, regionID);
     if (diceValue < 0) {
         diceValue *= -1;
@@ -140,30 +146,46 @@ int distFrom7(Game g, int regionID) {
     return diceValue;
 }
 
-int decideOption(Game g) {
+// decide from 2 places to build a campus on first turn
+// based on higher probablity of the regions it would be in.
+static int decideOption(Game g) {
     int option;
+    // sum of the regions' dice value's distance from 7
+    // the smaller, the better
     int distances1, distances2;
     int player = getWhoseTurn(g);
     if (player == UNI_A) {
-        distances1 = distFrom7(g, 3) + distFrom7(g, 7) + distFrom7(g, 8);
-        distances2 = distFrom7(g, 10) + distFrom7(g, 11) + distFrom7(g, 15);
+        distances1 = distFrom7(g, 3) +
+                    distFrom7(g, 7) + 
+                    distFrom7(g, 8);
+        distances2 = distFrom7(g, 10) + 
+                    distFrom7(g, 11) + 
+                    distFrom7(g, 15);
     } else if (player == UNI_B) {
-        distances1 = distFrom7(g, 14) + distFrom7(g, 17) + distFrom7(g, 18);
-        distances2 = distFrom7(g, 0) + distFrom7(g, 1) + distFrom7(g, 4);
+        distances1 = distFrom7(g, 14) +
+                    distFrom7(g, 17) +
+                    distFrom7(g, 18);
+        distances2 = distFrom7(g, 0) +
+                    distFrom7(g, 1) + 
+                    distFrom7(g, 4);
     } else {
-        distances1 = distFrom7(g, 12) + distFrom7(g, 13) + distFrom7(g, 16);
-        distances2 = distFrom7(g, 2) + distFrom7(g, 5) + distFrom7(g, 6);
+        distances1 = distFrom7(g, 12) +
+                    distFrom7(g, 13) +
+                    distFrom7(g, 16);
+        distances2 = distFrom7(g, 2) +
+                    distFrom7(g, 5) +
+                    distFrom7(g, 6);
     }
     if (distances2 < distances1) {
-        option = 2;
+        option = MAP_OPTION2;
     } else {
-        option = 1;
+        option = MAP_OPTION1;
     }
     return option;
 }
 
 // Build a campus, or spinoff in order to.
-action buildCampus(Game g, path dest) {
+static action buildCampus(Game g, path dest) {
     printf("BUILD CAMPUS\n");
     int exchangeRate;
     int player = getWhoseTurn(g);
@@ -215,74 +237,76 @@ action buildCampus(Game g, path dest) {
     return a;
 }
 
-action buildFirstCampus(Game g) {
-    printf("BUILD FIRST CAMPUS \n");
+// Build first campus at start of game
+static action buildFirstCampus(Game g) {
     int option;
     int player = getWhoseTurn(g);
     action a;
-    path opt1Arc1[] = {"R", "LRLRLRRLRL", "LRLRL"};
-    path opt2Arc1[] = {"RLRLRLRLRLLL", "RRLRLL", "RRLRLLRLRLL"};
-    path opt1Arc2[] = {"RL", "LRLRLRRLRR", "LRLRR"};
-    path opt2Arc2[] = {"RLRLRLRLRLLLL", "RRLRLLL", "RRLRLLRLRLLL"};
-    path opt1Campus[] = {"RL", "LRLRLRRLRR", "LRLRR"};
-    path opt2Campus[] = {"RLRLRLRLRLLLL", "RRLRLLL", "RRLRLLRLRLLL"};
+    path opt1Arc1[] = OPTION1_ARC1;
+    path opt2Arc1[] = OPTION2_ARC1;
+    path opt1Arc2[] = OPTION1_ARC2;
+    path opt2Arc2[] = OPTION2_ARC2;
+    path opt1Campus[] = OPTION1_CAMPUS;
+    path opt2Campus[] = OPTION2_CAMPUS;
+    // Two options for building a campus
+    // on two sides on the map
     option = decideOption(g);
     printf("option %d\n", option);
     if (getARCs(g, player) == 0) {
+        // build first ARC
         a.actionCode = OBTAIN_ARC;
-        if (option == 1) {
+        if (option == MAP_OPTION1) {
             strcpy(a.destination, opt1Arc1[player - 1]);
         } else {
             strcpy(a.destination, opt2Arc1[player - 1]);
         }
     } else if (getARCs(g, player) == 1) {
+        // build second ARC
         a.actionCode = OBTAIN_ARC;
-        if (option == 1) {
+        if (option == MAP_OPTION1) {
             strcpy(a.destination, opt1Arc2[player - 1]);
         } else {
             strcpy(a.destination, opt2Arc2[player - 1]);
         }
     } else {
+        // build first campus, or retrain required students
         a.actionCode = BUILD_CAMPUS;
-        if (option == 1) {
-            //strcpy(a.destination, opt1Campus[player - 1]);
+        if (option == MAP_OPTION1) {
             a = buildCampus(g, opt1Campus[player - 1]);
         } else {
-            //strcpy(a.destination, opt2Campus[player - 1]);
             a = buildCampus(g, opt2Campus[player - 1]);
         }
     }
     return a;
 }
 
-action buildSecondCampus(Game g) {
+// for option 1 only: build a second campus if possible
+static action buildSecondCampus(Game g) {
     action a;
     int player = getWhoseTurn(g);
-    path locations[3] = {"RR", "LRLRLRRLR", "LRLR"};
-    if (getARCs(g, player) < 3) {
+    path campusLocation[3] = OPTION1_2ND_CAMPUS;
+    path arcLocation[3] = OPTION1_2ND_CAMPUS_ARC;
+
+    // make arc required for 2nd campus if it doesn't already exist
+    if (getARC(g, arcLocation[player - 1]) == VACANT_ARC) {
         if (getStudents(g, player, STUDENT_BQN) > 0 &&
             getStudents(g, player, STUDENT_BPS) > 0) {
             a.actionCode = OBTAIN_ARC;
-            strcpy(a.destination, locations[player - 1]);
+            strcpy(a.destination, arcLocation[player - 1]);
         } else {
             a.actionCode = PASS;
         }
+    // build second campus if enough people
     } else if (getStudents(g, player, STUDENT_BQN) > 0 &&
                getStudents(g, player, STUDENT_BPS) > 0 &&
                getStudents(g, player, STUDENT_MJ) > 0 &&
                getStudents(g, player, STUDENT_MTV) > 0) {
         a.actionCode = BUILD_CAMPUS;
-        if (player == UNI_C) {
-            strcpy(a.destination, "LRL");
-        } else if (player == UNI_B) {
-            strcpy(a.destination, "LRLRLRRL");
-        }
-        else {
-            strcpy(a.destination, locations[player - 1]);
-        }
+        strcpy(a.destination, campusLocation[player - 1]);
     } else {
         a.actionCode = PASS;
     }
+    // check that arc or campus is possible
     if (!isLegalAction(g, a)) {
         a.actionCode = PASS;
     }
@@ -291,13 +315,14 @@ action buildSecondCampus(Game g) {
 
 // Retrain students in order to build a GO8
 // Only retrains to M$ if retraining results in 3+ M$
-int gO8Retrains(Game g, int depleted) {
-    printf("RETRAINGO8\n");
+static int gO8Retrains(Game g, int depleted) {
     int player = getWhoseTurn(g);
     int retrainFrom = NO_RETRAIN;
     int retrainIsOkay = FALSE;
-    int possibleRetrains = getStudents(g, player, STUDENT_MMONEY);
+    int potentialMMon = getStudents(g, player, STUDENT_MMONEY);
     int rate;
+    int currentCount;
+
     int current = STUDENT_BPS;
     while (!retrainIsOkay && current <= STUDENT_MMONEY) {
         if (current != depleted) {
@@ -310,15 +335,18 @@ int gO8Retrains(Game g, int depleted) {
             } else if (current == STUDENT_MMONEY) {
                 rate += 3;
             }
-            if (getStudents(g, player, current) >= rate) {
+            currentCount = getStudents(g, player, current);
+            if (currentCount >= rate) {
+                // If retraining to M$, make sure that retraining will
+                // be enough to create GO8, to avoid waste to ThD's
                 if (depleted == STUDENT_MMONEY) {
                     if (retrainFrom == NO_RETRAIN) {
                         retrainFrom = current;
                     }
-                    possibleRetrains += 1 +
-                        (getStudents(g, player, current) - rate) / 3;
-                    printf("retrain to M$, possRetr: %d\n", possibleRetrains);
-                    if (possibleRetrains >= 3) {
+                    // Add how many times current discipline
+                    // can be retrained
+                    potentialMMon += currentCount / rate;
+                    if (potentialMMon >= 3) {
                         retrainIsOkay = TRUE;
                     }
                 } else {
@@ -335,20 +363,21 @@ int gO8Retrains(Game g, int depleted) {
     return retrainFrom;
 }
 
-action buildGO8(Game g) {
+static action buildGO8(Game g) {
     printf("buildGO8\n");
     action a;
-    path opt1Campus[] = {"RL", "LRLRLRRLRR", "LRLRR"};
-    path opt2Campus[] = {"RLRLRLRLRLLLL", "RRLRLLL", "RRLRLLRLRLLL"};
+    path opt1Campus[] = OPTION1_CAMPUS;
+    path opt2Campus[] = OPTION2_CAMPUS;
     path campus;
     int player = getWhoseTurn(g);
-    int option = decideOption(g);
     int retrainFrom;
-    if (option == 1) {
+    if (decideOption(g) == MAP_OPTION1) {
         strcpy(campus, opt1Campus[player - 1]);
     } else {
         strcpy(campus, opt2Campus[player - 1]);
     }
+    // If not enough MJ students,
+    // find somewhere to retrain from or PASS
     if (getStudents(g, player, STUDENT_MJ) < 2) {
         retrainFrom = gO8Retrains(g, STUDENT_MJ);
         if (retrainFrom == NO_RETRAIN) {
@@ -358,6 +387,8 @@ action buildGO8(Game g) {
             a.disciplineFrom = retrainFrom;
             a.disciplineTo = STUDENT_MJ;
         }
+    // If not enough M$ students,
+    // find somewhere to retrain from or PASS
     } else if (getStudents(g, player, STUDENT_MMONEY) < 3) {
         retrainFrom = gO8Retrains(g, STUDENT_MMONEY);
         if (retrainFrom == NO_RETRAIN) {
@@ -367,30 +398,10 @@ action buildGO8(Game g) {
             a.disciplineFrom = retrainFrom;
             a.disciplineTo = STUDENT_MMONEY;
         }
+    // Enough students
     } else {
         a.actionCode = BUILD_GO8;
         strcpy(a.destination, campus);
     }
     return a;
-}
- 
-action decideAction(Game g) {
-    action nextAction;
-    nextAction.actionCode = PASS;
-    int player = getWhoseTurn(g);
-
-    if (getCampuses(g, player) < 3 && getGO8s(g, player) == 0) {
-        nextAction = buildFirstCampus(g);
-    }
-    else if (getGO8s(g, player) < 1 && getTurnNumber(g) < 85) {
-        nextAction = buildGO8(g);
-    } else {
-        if (decideOption(g) == 1) {
-            nextAction = buildSecondCampus(g);
-        }
-        if (nextAction.actionCode == PASS) {
-            nextAction = startSpinoff(g);
-        }
-    }
-    return nextAction;
 }
